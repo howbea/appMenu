@@ -27,7 +27,6 @@ import St from 'gi://St';
 
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 import {AppMenu} from './appMenu.js';
-import * as appMenu from './appMenu.js';
 import {DesktopMenu} from './desktopMenu.js';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as CtrlAltTab from 'resource:///org/gnome/shell/ui/ctrlAltTab.js';
@@ -38,8 +37,6 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import {QuickSettingsMenu, SystemIndicator} from 'resource:///org/gnome/shell/ui/quickSettings.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Util from 'resource:///org/gnome/shell/misc/util.js';
-
-
 
 const PANEL_ICON_SIZE = 16;
 const APP_MENU_ICON_MARGIN = 0;
@@ -52,7 +49,7 @@ const AppMenuButton = GObject.registerClass({
     Signals: {'changed': {}},
 }, class AppMenuButton extends PanelMenu.Button {
     _init(panel) {
-        super._init(0.5, null, false);
+        super._init(0.0, null, true);
 
         this.accessible_role = Atk.Role.MENU;
 
@@ -92,7 +89,6 @@ const AppMenuButton = GObject.registerClass({
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._container.add_child(this._label);
-        
 
         this._visible = !Main.overview.visible;
         if (!this._visible)
@@ -106,12 +102,12 @@ const AppMenuButton = GObject.registerClass({
             hideOnStop: true,
         });
         this._container.add_child(this._spinner);
-        
-        this.menu?.destroy(); //removeAll();
-        this._menuManager.menu?.destroy(); //addMenu(menu);
+
         let menu = new AppMenu(this);
         this.setMenu(menu);
         this._menuManager.addMenu(menu);
+        
+        this._dmenu = new DesktopMenu(this);
 
         Shell.WindowTracker.get_default().connectObject('notify::focus-app',
             this._focusAppChanged.bind(this), this);
@@ -217,7 +213,7 @@ const AppMenuButton = GObject.registerClass({
     _sync() {
         let targetApp = this._findTargetApp();
 
-        //if (this._targetApp !== targetApp) {
+        if (this._targetApp !== targetApp) {
             this._targetApp?.disconnectObject(this);
 
             this._targetApp = targetApp;
@@ -226,21 +222,17 @@ const AppMenuButton = GObject.registerClass({
                 this._targetApp.connectObject('notify::busy', this._sync.bind(this), this);
                 this._label.set_text(this._targetApp.get_name());
                 this.set_accessible_name(this._targetApp.get_name());
-                
-                if (!this._iconBox.visible)
-                this._iconBox.show();
+
                 this._syncIcon(this._targetApp);
             }
-            else { //if(!targetApp){
-                let text = 'Search';
+            else {
+                let text = 'Settings'
                 this._label.set_text(text);
-                this._iconBox.set_child(new St.Icon({icon_name: 'org.gnome.Settings-search-symbolic', style_class: 'desktop-menu-icon'}));
-                //this._iconBox.hide();
+                this._iconBox.set_child(new St.Icon({icon_name: 'user-desktop-symbolic', style_class: 'desktop-menu-icon'}));
             }
-        //}
-        
+        }            
 
-        let visible = this._targetApp != null && !Main.overview.visibleTarget;
+        let visible = !Main.overview.visibleTarget;
         if (visible)
             this.fadeIn();
         else
@@ -249,48 +241,19 @@ const AppMenuButton = GObject.registerClass({
         let isBusy = this._targetApp != null &&
                       (this._targetApp.get_state() === Shell.AppState.STARTING ||
                        this._targetApp.get_busy());
-                       
         if (isBusy)
             this.startAnimation();
         else
             this.stopAnimation();
 
         this.reactive = visible && !isBusy;
-        
-        this.menu?.destroy(); //removeAll();
-        this._menuManager.menu?.destroy();
-            let menu = new AppMenu(this);
-            this.setMenu(menu);
-            this._menuManager.addMenu(menu);
+
+
+        if (this._targetApp)
             this.menu.setApp(this._targetApp);
-        
-        if(!targetApp) {
-            
-            
-            let visible = !Main.overview.visibleTarget;
-            if (visible)
-                this.fadeIn();
-            else
-                this.fadeOut();
-
-            let isBusy = this._targetApp != null &&
-                        (this._targetApp.get_state() === Shell.AppState.STARTING ||
-                        this._targetApp.get_busy());
-                       
-        if (isBusy)
-            this.startAnimation();
         else
-            this.stopAnimation();
-
-        this.reactive = visible && !isBusy;
+            this.menu = this._dmemu;
             
-            this.menu?.destroy(); //removeAll();
-            this._menuManager.menu?.destroy(); //addMenu(menu);
-            let menu = new DesktopMenu(this);
-            this.setMenu(menu);
-            this._menuManager.addMenu(menu);
-        }
-        
         this.emit('changed');
     }
 });
@@ -305,34 +268,6 @@ export default class IndicatorExampleExtension extends Extension {
                     topWindow.focus(Clutter.CURRENT_TIME);
                 }
             });
-            
-            this._button = new appMenu.MyPanelMenuButton();
-            
-        this._altTabHandler = () => {
-        if (!this._button)
-            return;
-
-        this._button.startAltTab(false);
-    };
-
-    this._altTabBackwardHandler = () => {
-        if (!this._button)
-            return;
-
-        this._button.startAltTab(true);
-    };
-
-    Main.wm.setCustomKeybindingHandler(
-        'switch-applications',
-        Shell.ActionMode.ALL,
-        this._altTabHandler
-    );
-
-    Main.wm.setCustomKeybindingHandler(
-        'switch-applications-backward',
-        Shell.ActionMode.ALL,
-        this._altTabBackwardHandler
-    );
     
         this._indicator = new AppMenuButton(Main.panel);
         if(Main.panel.statusArea['appMenu'])

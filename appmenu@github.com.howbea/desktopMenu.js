@@ -9,6 +9,7 @@ import GObject from 'gi://GObject';
 import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import {PlacesManager} from './placeDisplay.js';
+import * as appMenu from './appMenu.js';
 
 const N_ = x => x;
 
@@ -19,124 +20,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 Gio._promisify(Gio.AppInfo, 'launch_default_for_uri_async');
 
-class PlaceMenuItem extends PopupMenu.PopupImageMenuItem { //PopupMenu.PopupMenuItem {
-    static {
-        GObject.registerClass(this);
-    }
-
-    constructor(info) {
-        super(info.name, info.icon, {
-        //super(info.name, {
-            style_class: 'place-menu-item',
-        });
-        this._info = info;
-
-        if (info.isRemovable()) {
-            this._ejectIcon = new St.Icon({
-                icon_name: 'media-eject-symbolic',
-                style_class: 'popup-menu-icon',
-            });
-            this._ejectButton = new St.Button({
-                child: this._ejectIcon,
-                style_class: 'button',
-            });
-            this._ejectButton.connect('clicked', info.eject.bind(info));
-            this.add_child(this._ejectButton);
-        }
-
-        info.connectObject('changed',
-            this._propertiesChanged.bind(this), this);
-    }
-
-    activate(event) {
-        this._info.launch(event.get_time());
-
-        super.activate(event);
-    }
-
-    _propertiesChanged(info) {
-        this.setIcon(info.icon);
-        this.label.text = info.name;
-    }
-}
-
-class PlaceMenuItem2 extends PopupMenu.PopupMenuItem {
-    static {
-        GObject.registerClass(this);
-    }
-
-    constructor(info) {
-        super(info.name, {
-            style_class: 'place-menu-item',
-        });
-        this._info = info;
-
-        if (info.isRemovable()) {
-            this._ejectIcon = new St.Icon({
-                icon_name: 'media-eject-symbolic',
-                style_class: 'popup-menu-icon',
-            });
-            this._ejectButton = new St.Button({
-                child: this._ejectIcon,
-                style_class: 'button',
-            });
-            this._ejectButton.connect('clicked', info.eject.bind(info));
-            this.add_child(this._ejectButton);
-        }
-
-        info.connectObject('changed',
-            this._propertiesChanged.bind(this), this);
-    }
-
-    activate(event) {
-        this._info.launch(event.get_time());
-
-        super.activate(event);
-    }
-
-    _propertiesChanged(info) {
-        this.setIcon(info.icon);
-        this.label.text = info.name;
-    }
-}
-
-const SECTIONS = [
-    'special',
-    //'devices',
-    //'bookmarks',
-    //'network',
-];
-
-const SECTIONS2 = [
-    //'special',
-    'devices',
-    //'bookmarks',
-    //'network',
-];
-
-const SECTIONS3 = [
-    //'home',
-    //'special',
-    //'devices',
-    'bookmarks',
-    //'network',
-];
-
-const SECTIONS4 = [
-    //'home',
-    //'special',
-    //'devices',
-    //'bookmarks',
-    'network1',
-];
-
-const SECTIONS5 = [
-    //'home',
-    //'special',
-    //'devices',
-    //'bookmarks',
-    'network',
-];
+const mypanelMenuButton = new appMenu.MyPanelMenuButton();
 
 export class DesktopMenu extends PopupMenu.PopupMenu {
     /**
@@ -164,15 +48,51 @@ export class DesktopMenu extends PopupMenu.PopupMenu {
         this._appFavorites = AppFavorites.getAppFavorites();
         //this._enableFavorites = favoritesSection;
         //this._showSingleWindows = showSingleWindows;
-
-        this._windowsChangedId = 0;
-        this._updateWindowsLaterId = 0;
         
-        //this._app = this._appSystem.lookup_app('org.gnome.Nautilus.desktop');
-
-        /* Translators: This is the heading of a list of open windows */
+        let itemoverview = new PopupMenu.PopupMenuItem(_('Overview'));
+        itemoverview.connect('activate', () => {
+        if (Main.overview.shouldToggleByCornerOrButton())
+            Main.overview.toggle();
+        });
         
-        let item = new PopupMenu.PopupMenuItem(_('Show in Files'));
+        //this.addMenuItem(itemoverview);
+        
+        let itemapps = new PopupMenu.PopupMenuItem(_('App Grid'));
+        itemapps.connect('activate', () => {
+            if (Main.overview.dash.showAppsButton.checked) {
+                if (Main.overview.shouldToggleByCornerOrButton())
+                    Main.overview.dash.showAppsButton.checked = false;
+            }
+            else {
+                if (Main.overview.shouldToggleByCornerOrButton()) {
+                    Main.overview.show();
+                    Main.overview.dash.showAppsButton.checked = true;
+                    }
+            }
+        });
+        
+        this.addMenuItem(itemapps);
+      
+      this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        
+        this._mypanelMenuButtonItem = this.addAction(_('Window Previews'), () => {
+            mypanelMenuButton._showWidget();
+            //mypanelMenuButton.toggleDock();
+        });
+        
+        this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        
+        let item1 = new PopupMenu.PopupMenuItem(_('Change Background…'));
+        item1.connect('activate', () => {
+            Shell.AppSystem.get_default().lookup_app('gnome-background-panel.desktop').activate();
+            this.menu.close();
+            Main.overview.hide();
+        });
+        
+        this.addMenuItem(item1);
+        this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        
+        let item = new PopupMenu.PopupMenuItem(_('Show Desktop in Files'));
         item.connect('activate', () => {
             let desktopPath = GLib.get_user_special_dir(
                 GLib.UserDirectory.DIRECTORY_DESKTOP);
@@ -183,69 +103,7 @@ export class DesktopMenu extends PopupMenu.PopupMenu {
             this.menu.close();
             Main.overview.hide();
         });
-        this.addMenuItem(item);
-        
-        //this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem(_('')));
-        this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem(_('Places')));
-        
-        const homeFile = Gio.File.new_for_path(GLib.get_home_dir());
-        let itemp2 = new PopupMenu.PopupMenuItem(_('Home'));
-        itemp2.connect('activate', () => {
-            Gio.AppInfo.launch_default_for_uri_async(homeFile.get_uri(), global.create_app_launch_context(0, -1), null);
-            this.menu.close();
-            Main.overview.hide();
-        });
-        //this.addMenuItem(itemp2);
-        
-        let itemp3 = new PopupMenu.PopupMenuItem(_('Recent'));
-        itemp3.connect('activate', () => {
-            Gio.AppInfo.launch_default_for_uri_async('recent:///', global.create_app_launch_context(0, -1), null);
-            this.menu.close();
-            Main.overview.hide();
-        });
-        //this.addMenuItem(itemp3);
-        
-        let itemp4 = new PopupMenu.PopupMenuItem(_('Starred'));
-        itemp4.connect('activate', () => {
-            this._app.appInfo.launch([Gio.File.new_for_uri('starred:///')], global.create_app_launch_context(0, -1));
-            this.menu.close();
-            Main.overview.hide();
-        });
-        //this.addMenuItem(itemp4);
-        
-        let itemp5 = new PopupMenu.PopupMenuItem(_('Network'));
-        itemp5.connect('activate', () => {
-            Gio.AppInfo.launch_default_for_uri_async('x-network-view:///', global.create_app_launch_context(0, -1), null);
-            this.menu.close();
-            Main.overview.hide();
-        });
-        //this.addMenuItem(itemp5);
-        
-        let itemp6 = new PopupMenu.PopupMenuItem(_('Trash'));
-        itemp6.connect('activate', () => {
-            Gio.AppInfo.launch_default_for_uri_async('trash:///', global.create_app_launch_context(0, -1), null);
-            this.menu.close();
-            Main.overview.hide();
-        });
-        //this.addMenuItem(itemp6);
-        this.placesMenu();
-        
-        this.smitemd = new PopupMenu.PopupSubMenuMenuItem(_('Drives', false));
-        //this.addMenuItem(this.smitemd);        
-        this.placesMenu2();
-        this.placesMenu3();
-        this.placesMenu4();
-        
-        this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        let item1 = new PopupMenu.PopupMenuItem(_('Change Background…'));
-        item1.connect('activate', () => {
-            Shell.AppSystem.get_default().lookup_app('gnome-background-panel.desktop').activate();
-            this.menu.close();
-            Main.overview.hide();
-        });
-        
-        this.addMenuItem(item1);
+        //this.addMenuItem(item);
         this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         
         let item2 = new PopupMenu.PopupMenuItem(_('Display Settings'));
@@ -260,7 +118,7 @@ export class DesktopMenu extends PopupMenu.PopupMenu {
             Shell.AppSystem.get_default().lookup_app('org.gnome.Settings.desktop').activate();
             this.menu.close();
         });
-        //this.addMenuItem(item3);
+        this.addMenuItem(item3);
     }
     
     placesMenu() {

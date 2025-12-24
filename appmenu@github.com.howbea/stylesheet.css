@@ -1,19 +1,20 @@
-/* Add your custom extension styling here */
-
-.app-menu-icon {
-  -st-icon-style: symbolic;
-}
 
 .desktop-menu-icon {
   icon-size: 16px;
 }
 
-.place-menu-item .button {
-  border-radius: 99px;
-  padding: 3px;
-  min-height: auto;
+.dap-ws-separator {
+    width: 1px;
+    height: 200px;
+    margin: 0 12px;
+    background-color: rgba(255,255,255,0.3);
 }
 
-.place-menu-item .button:ltr { margin-left: 6px; }
-.place-menu-item .button:rtl { margin-right: 6px; }
+
+.dap-preview-dock {
+    background-color: rgba(222, 221, 218, 1);
+    color: black;
+    padding: 12px;
+    border-radius: 18px 18px 0 0;
+}
 
