@@ -1,0 +1,11 @@
+{
+  "name": "GFinder",
+  "description": "App menu",
+  "uuid": "gappmenu@github.com.howbea",
+  "gettext-domain": "gnome-shell",
+  "shell-version": [
+    "48",
+    "49",
+    "50"
+  ]
+}
