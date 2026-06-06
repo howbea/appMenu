@@ -19,12 +19,13 @@
 import Atk from 'gi://Atk';
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
+import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
-import {AppMenu} from './appMenu.js';
+import {AppMenu} from 'resource:///org/gnome/shell/ui/appMenu.js';
 import * as Overview from 'resource:///org/gnome/shell/ui/overview.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -37,10 +38,12 @@ import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/ex
 const AppMenuButton = GObject.registerClass({
     Signals: {'changed': {}},
 }, class AppMenuButton extends PanelMenu.Button {
-    _init(panel) {
+    _init(panel, settings) {
         super._init(0.0, null, true);
 
         this.accessible_role = Atk.Role.MENU;
+        
+        this._settings = settings;
 
         this._startingApps = [];
 
@@ -98,10 +101,12 @@ const AppMenuButton = GObject.registerClass({
             hideOnStop: true,
         });
         this._container.add_child(this._spinner);
+        
+        this._buildMenu();
 
-        let menu = new AppMenu(this);
-        this.setMenu(menu);
-        this._menuManager.addMenu(menu);
+        this._settingsID = this._settings.connect('changed::single-window', () => {
+            this._buildMenu();
+        });        
 
         Shell.WindowTracker.get_default().connectObject('notify::focus-app',
             this._focusAppChanged.bind(this), this);
@@ -112,6 +117,29 @@ const AppMenuButton = GObject.registerClass({
 
         this._sync();
     }
+    
+    _buildMenu() {
+    if (this.menu) {
+        this.menu.close();
+        this.menu.destroy();
+    }
+
+    let menu;
+
+    if (this._settings.get_boolean('single-window')) {
+        menu = new AppMenu(this, St.Side.TOP, {
+            favoritesSection: false,
+            showSingleWindows: true,
+        });
+    } else {
+        menu = new AppMenu(this);
+    }
+
+    this.setMenu(menu);
+    this._menuManager.addMenu(menu);
+
+    menu.setApp(this._targetApp);
+}
 
     fadeIn() {
         if (this._visible)
@@ -189,10 +217,12 @@ const AppMenuButton = GObject.registerClass({
     }
 
     _findTargetApp() {
+        let appSys = Shell.AppSystem.get_default();
+            
         let workspaceManager = global.workspace_manager;
         let workspace = workspaceManager.get_active_workspace();
         let tracker = Shell.WindowTracker.get_default();
-        let focusedApp = tracker.focus_app;
+        let focusedApp = tracker.focus_app;            
         if (focusedApp && focusedApp.is_on_workspace(workspace))
             return focusedApp;
 
@@ -200,11 +230,13 @@ const AppMenuButton = GObject.registerClass({
             if (this._startingApps[i].is_on_workspace(workspace))
                 return this._startingApps[i];
         }
-
-        let appSys = Shell.AppSystem.get_default();
+        
+        if (this._settings.get_boolean('files-app')) {
         let filesApp = appSys.lookup_app('org.gnome.Nautilus.desktop'); //Terminal.desktop'); //
-
         return filesApp ?? null;
+        }
+        
+        return null;
     }
 
     _sync() {
@@ -221,7 +253,7 @@ const AppMenuButton = GObject.registerClass({
                 this.set_accessible_name(this._targetApp.get_name());
 
                 this._syncIcon(this._targetApp);
-            }
+            }            
         }
 
         let visible = this._targetApp != null && !Main.overview.visibleTarget;
@@ -243,17 +275,28 @@ const AppMenuButton = GObject.registerClass({
         this.menu.setApp(this._targetApp);
         this.emit('changed');
     }
+    
+    destroy() {
+    if (this._settingsID) {
+        this._settings.disconnect(this._settingsID);
+        this._settingsID = null;
+    }
+
+    super.destroy();
+    }
 });
 
 
 export default class IndicatorGAppMenuExtension extends Extension {
-    enable() {    
-        this._indicator = new AppMenuButton(Main.panel);
+    enable() {
+        this._settings = this.getSettings();
+        this._indicator = new AppMenuButton(Main.panel, this._settings);
         Main.panel.statusArea['appMenu']?.hide();
         Main.panel.addToStatusArea(this.uuid, this._indicator, -1, 'left');
     }
 
     disable() {
+        this._settings = null;
         this._indicator.destroy();
         this._indicator = null;
         Main.panel.statusArea['appMenu']?.show();

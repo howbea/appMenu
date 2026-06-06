@@ -1,0 +1,17 @@
+<schemalist gettext-domain="gnome-shell-extensions">
+  <schema id="org.gnome.shell.extensions.gappmenu" path="/org/gnome/shell/extensions/gappmenu/">
+    <key name="files-app" type="b">
+      <default>true</default>
+      <summary>Show Files</summary>
+      <description>
+      </description>
+    </key>
+    <key name="single-window" type="b">
+      <default>true</default>
+      <summary>Show title</summary>
+      <description>
+      </description>
+    </key>
+  </schema>
+</schemalist>
+

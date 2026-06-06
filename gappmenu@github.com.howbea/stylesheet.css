@@ -1,3 +1,7 @@
 #appMenu .panel-status-menu-box {
- spacing: 8px;
+ spacing: 5px;
  }
+ 
+.app-menu-icon {
+-st-icon-style: symbolic;
+}
