@@ -1,9 +1,0 @@
-{
-  "name": "App Menu",
-  "description": "App menu",
-  "uuid": "appmenu@github.com.howbea",
-  "gettext-domain": "appmenu@github.com.howbea",
-  "shell-version": [
-    "47"
-  ]
-}
