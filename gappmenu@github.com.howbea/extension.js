@@ -20,6 +20,7 @@ import Atk from 'gi://Atk';
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
@@ -28,12 +29,69 @@ import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 import {AppMenu} from 'resource:///org/gnome/shell/ui/appMenu.js';
 import * as Overview from 'resource:///org/gnome/shell/ui/overview.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {PlacesManager} from './placeDisplay.js';
+
+const N_ = x => x;
 
 const PANEL_ICON_SIZE = 16;
 const APP_MENU_ICON_MARGIN = 0;
 
 import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
+
+class PlaceMenuItem extends PopupMenu.PopupImageMenuItem {
+    static {
+        GObject.registerClass(this);
+    }
+    
+    constructor(info, appMenuButton, showIcon) {
+        super(info.name, info.icon, {
+            style_class: 'place-menu-item',
+        });
+        
+        this._info = info;
+        
+        this._appMenuButton = appMenuButton;
+        
+        this._icon.visible = showIcon;
+
+        if (info.isRemovable()) {
+            this._ejectIcon = new St.Icon({
+                icon_name: 'media-eject-symbolic',
+                style_class: 'popup-menu-icon',
+            });
+            this._ejectButton = new St.Button({
+                child: this._ejectIcon,
+                style_class: 'button',
+            });
+            this._ejectButton.connect('clicked', info.eject.bind(info));
+            this.add_child(this._ejectButton);
+        }
+
+        info.connectObject('changed',
+            this._propertiesChanged.bind(this), this);
+    }
+
+    activate(event) {
+        this._info.launch(event.get_time());
+        this._appMenuButton.menu.close();
+
+        super.activate(event);
+    }
+
+    _propertiesChanged(info) {
+        this.setIcon(info.icon);
+        this.label.text = info.name;
+    }
+}
+
+const SECTIONS = [
+    'special',
+    'devices',
+    'bookmarks',
+    'network',
+];
 
 const AppMenuButton = GObject.registerClass({
     Signals: {'changed': {}},
@@ -42,13 +100,11 @@ const AppMenuButton = GObject.registerClass({
         super._init(0.0, null, true);
 
         this.accessible_role = Atk.Role.MENU;
-        
         this._settings = settings;
-
         this._startingApps = [];
-
         this._menuManager = panel.menuManager;
         this._targetApp = null;
+        this.placesManager = null;
 
         let bin = new St.Bin({name: 'appMenu'});
         this.add_child(bin);
@@ -71,9 +127,22 @@ const AppMenuButton = GObject.registerClass({
             style_class: 'app-menu-icon',
             y_align: Clutter.ActorAlign.CENTER,
         });
+
+        this._iconBox.visible =
+            this._settings.get_boolean('show-app-icon');
+
+        this._settings.connectObject(
+            'changed::show-app-icon',
+            () => {
+             this._iconBox.visible =
+                    this._settings.get_boolean('show-app-icon');
+            },
+            this
+        );
+        
         this._iconBox.add_effect(iconEffect);
         this._container.add_child(this._iconBox);
-        
+
         this._iconBox.connectObject(
             'style-changed',
             () => {
@@ -101,12 +170,16 @@ const AppMenuButton = GObject.registerClass({
             hideOnStop: true,
         });
         this._container.add_child(this._spinner);
-        
+
         this._buildMenu();
 
-        this._settingsID = this._settings.connect('changed::single-window', () => {
+        /*this._settingsID = this._settings.connect('changed::single-window', () => {
             this._buildMenu();
-        });        
+        });*/
+        
+        this._settingsID = this._settings.connect('changed', () => {
+            this._buildMenu();
+        });
 
         Shell.WindowTracker.get_default().connectObject('notify::focus-app',
             this._focusAppChanged.bind(this), this);
@@ -117,28 +190,90 @@ const AppMenuButton = GObject.registerClass({
 
         this._sync();
     }
-    
+
+    _cleanPlacesManager() {
+        if (this.placesManager) {
+            this.placesManager.disconnectObject(this);
+            this.placesManager.destroy();
+            this.placesManager = null;
+        }
+    }
+
     _buildMenu() {
-    if (this.menu) {
-        this.menu.close();
-        this.menu.destroy();
+        this._cleanPlacesManager();
+
+        if (this.menu) {
+            this.menu.close();
+            this.menu.destroy();
+        }
+
+        let menu;
+
+        if (this._settings.get_boolean('single-window')) {
+            menu = new AppMenu(this, St.Side.TOP, {
+                favoritesSection: false,
+                showSingleWindows: true,
+            });
+        } else {
+            menu = new AppMenu(this);
+        }
+
+        this.setMenu(menu);
+        this._menuManager.addMenu(menu);
+
+        menu.actor.add_style_class_name('panel-app-menu');
+        menu.setApp(this._targetApp);
+
+        if (this._targetApp?.get_id() === 'org.gnome.Nautilus.desktop') {
+            this._addFilesActions(menu);
+        }
     }
 
-    let menu;
+    _addFilesActions(menu) {
+    this.placesManager = new PlacesManager();
+    this._sections = {};
 
-    if (this._settings.get_boolean('single-window')) {
-        menu = new AppMenu(this, St.Side.TOP, {
-            favoritesSection: false,
-            showSingleWindows: true,
-        });
-    } else {
-        menu = new AppMenu(this);
+    for (const id of SECTIONS) {
+        if (!this._settings.get_boolean(`show-${id}`))
+            continue;
+
+        const section = new PopupMenu.PopupMenuSection();
+        this._sections[id] = section;
+
+        this.placesManager.connectObject(
+            `${id}-updated`,
+            () => this._redisplay(id),
+            this
+        );
+
+        this._create(id);
     }
 
-    this.setMenu(menu);
-    this._menuManager.addMenu(menu);
+    const index = menu.box.get_children().indexOf(
+    menu._actionSection.actor
+    );
 
-    menu.setApp(this._targetApp);
+    const ids = SECTIONS.filter(id => this._sections[id]);
+
+    let offset = 1;
+
+    for (let i = 0; i < ids.length; i++) {
+        const section = this._sections[ids[i]];
+
+        menu.box.insert_child_at_index(
+            section.actor,
+            index + offset
+        );
+            offset++;
+
+        if (i < ids.length - 1) {
+            menu.box.insert_child_at_index(
+                new PopupMenu.PopupSeparatorMenuItem().actor,
+                index + offset
+            );
+            offset++;
+        }
+    }
 }
 
     fadeIn() {
@@ -196,10 +331,7 @@ const AppMenuButton = GObject.registerClass({
             this._startingApps = this._startingApps.filter(a => a !== app);
         else if (state === Shell.AppState.STARTING)
             this._startingApps.push(app);
-        // For now just resync on all running state changes; this is mainly to handle
-        // cases where the focused window's application changes without the focus
-        // changing.  An example case is how we map OpenOffice.org based on the window
-        // title which is a dynamic property.
+
         this._sync();
     }
 
@@ -207,9 +339,6 @@ const AppMenuButton = GObject.registerClass({
         let tracker = Shell.WindowTracker.get_default();
         let focusedApp = tracker.focus_app;
         if (!focusedApp) {
-            // If the app has just lost focus to the panel, pretend
-            // nothing happened; otherwise you can't keynav to the
-            // app menu.
             if (global.stage.key_focus != null)
                 return;
         }
@@ -218,11 +347,10 @@ const AppMenuButton = GObject.registerClass({
 
     _findTargetApp() {
         let appSys = Shell.AppSystem.get_default();
-            
         let workspaceManager = global.workspace_manager;
         let workspace = workspaceManager.get_active_workspace();
         let tracker = Shell.WindowTracker.get_default();
-        let focusedApp = tracker.focus_app;            
+        let focusedApp = tracker.focus_app;
         if (focusedApp && focusedApp.is_on_workspace(workspace))
             return focusedApp;
 
@@ -230,12 +358,12 @@ const AppMenuButton = GObject.registerClass({
             if (this._startingApps[i].is_on_workspace(workspace))
                 return this._startingApps[i];
         }
-        
+
         if (this._settings.get_boolean('files-app')) {
-        let filesApp = appSys.lookup_app('org.gnome.Nautilus.desktop'); //Terminal.desktop'); //
-        return filesApp ?? null;
+            let filesApp = appSys.lookup_app('org.gnome.Nautilus.desktop');
+            return filesApp ?? null;
         }
-        
+
         return null;
     }
 
@@ -253,13 +381,15 @@ const AppMenuButton = GObject.registerClass({
                 this.set_accessible_name(this._targetApp.get_name());
 
                 this._syncIcon(this._targetApp);
-            }            
+            }
+
+            this._buildMenu();
         }
 
         let visible = this._targetApp != null && !Main.overview.visibleTarget;
         if (visible)
             this.fadeIn();
-        else 
+        else
             this.fadeOut();
 
         let isBusy = this._targetApp != null &&
@@ -275,15 +405,39 @@ const AppMenuButton = GObject.registerClass({
         this.menu.setApp(this._targetApp);
         this.emit('changed');
     }
-    
+
     destroy() {
-    if (this._settingsID) {
-        this._settings.disconnect(this._settingsID);
-        this._settingsID = null;
+        this._cleanPlacesManager();
+
+        if (this._settingsID) {
+            this._settings.disconnect(this._settingsID);
+            this._settingsID = null;
+        }
+        super.destroy();
     }
 
-    super.destroy();
+    _redisplay(id) {
+        this._sections[id].removeAll();
+        this._create(id);
     }
+
+
+    _create(id) {
+        const places = this.placesManager.get(id);
+
+        for (let i = 0; i < places.length; i++)
+            this._sections[id].addMenuItem(
+                new PlaceMenuItem(
+                    places[i],
+                    this,
+                    this._settings.get_boolean('show-place-icons')
+                )
+            );
+
+        this._sections[id].actor.visible = places.length > 0;
+    }
+    
+   
 });
 
 
@@ -297,7 +451,7 @@ export default class IndicatorGAppMenuExtension extends Extension {
 
     disable() {
         this._settings = null;
-        this._indicator.destroy();
+        this._indicator?.destroy();
         this._indicator = null;
         Main.panel.statusArea['appMenu']?.show();
     }

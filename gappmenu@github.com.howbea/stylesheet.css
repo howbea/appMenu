@@ -3,5 +3,13 @@
  }
  
 .app-menu-icon {
--st-icon-style: symbolic;
+ -st-icon-style: symbolic;
 }
+
+.panel-app-menu {
+ min-width: 19em;
+}
+
+.place-menu-item {
+  -st-icon-style: symbolic;
+ }
